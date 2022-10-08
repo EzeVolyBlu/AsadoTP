@@ -16,9 +16,12 @@ struct semaforos{
     sem_t sem_respuesta;
     sem_t sem_levantarse;
     sem_t sem_invitados_sentados;
+    sem_t sem_platos_servidos;
 };
 
 struct parametro{
+    sem_t sems_empezar_a_comer[NUM_COMENSALES];
+    int nro_invitado;
     struct semaforos semaforos_param;
 };
 
@@ -34,6 +37,9 @@ void* ejecutarHiloManucho(void *data) {
 
     sem_post(&mydata->semaforos_param.sem_servir_comida);
 
+    sem_wait(&(mydata->sems_empezar_a_comer[0]));
+
+    printf("Manucho comiendo \n ");
 
     pthread_exit(0);
 }
@@ -54,6 +60,9 @@ void* ejecutarHiloSentarInvitados(void *data) {
         sem_post(&mydata->semaforos_param.sem_manucho_puede_sentarse);
     }
 
+    sem_wait(&(mydata->sems_empezar_a_comer[invitados_sentados]));
+    printf("Invitado comiendo: %d \n " , invitados_sentados);
+
     pthread_exit(0);
 }
 
@@ -63,19 +72,51 @@ void* ejecutarHiloInvitados(void *data) {
 
     // params
     struct parametro *mydata = data;
+    mydata->nro_invitado;
 
     pthread_t thread[NUM_INVITADOS];
 
     for(int i = 0; i < NUM_INVITADOS; i++) {
+        
+        mydata->nro_invitado = i;
         pthread_create( &(thread[i]) , NULL, ejecutarHiloSentarInvitados , mydata);
+        
+        sem_t sem_empezar_a_comer;
+        mydata->sems_empezar_a_comer[i] = sem_empezar_a_comer;
     }
 
     for(int i = 0; i < NUM_INVITADOS; i++) {
+
+    	sem_init(&(mydata->sems_empezar_a_comer[i]),0,0);
         pthread_join(thread[i] , NULL);
     }
 
     pthread_exit(0);
 }
+
+void* ejecutarHiloServirComida(void *data) {
+
+    struct parametro *mydata = data;
+    
+    int platos_servidos;
+
+    sem_getvalue(&mydata->semaforos_param.sem_platos_servidos, &platos_servidos);
+
+    while (platos_servidos < NUM_COMENSALES)
+    {
+        printf("platos servidos: %d \n " , platos_servidos);
+        sem_post(&mydata->semaforos_param.sem_platos_servidos);
+        usleep( 1000000 );
+        // servirComida();
+        sem_post(&mydata->sems_empezar_a_comer[platos_servidos]);
+        usleep( 1000000 );
+        sem_getvalue(&mydata->semaforos_param.sem_platos_servidos, &platos_servidos);
+    }
+    
+    printf("final servidos: %d \n " , platos_servidos);
+
+}
+
 
 void* ejecutarHiloMozos(void *data) {
 
@@ -87,18 +128,16 @@ void* ejecutarHiloMozos(void *data) {
 
     printf("servir comida !\n");
 
-/*
-    int myNumbers[NUM_MOZOS];
-    for(int i = 0; i < NUM_MOZOS; i++)
-        myNumbers[i] = 0;
+
+    pthread_t thread[NUM_MOZOS];
 
     for(int i = 0; i < NUM_MOZOS; i++) {
-        
-        // cada posicion del arreglo deberia habilitar un semaforo empezar_a_comer (hilo invitados)
+        pthread_create( &(thread[i]) , NULL, ejecutarHiloServirComida , mydata);
     }
-        myNumbers[i] = 0;
-        */
 
+    for(int i = 0; i < NUM_MOZOS; i++) {
+        pthread_join(thread[i] , NULL);
+    }
 
 
     pthread_exit(0);
@@ -120,6 +159,7 @@ int main () {
     sem_t sem_pregunta;
     sem_t sem_respuesta;
     sem_t sem_levantarse;
+    sem_t sem_platos_servidos;
 
     pthread_data->semaforos_param.sem_invitados_sentados = sem_invitados_sentados;
     pthread_data->semaforos_param.sem_manucho_puede_sentarse = sem_manucho_puede_sentarse;
@@ -127,11 +167,12 @@ int main () {
     pthread_data->semaforos_param.sem_pregunta = sem_pregunta;
     pthread_data->semaforos_param.sem_respuesta = sem_respuesta;
     pthread_data->semaforos_param.sem_levantarse = sem_levantarse;
-    
+    pthread_data->semaforos_param.sem_platos_servidos = sem_platos_servidos;
 
 	sem_init(&(pthread_data->semaforos_param.sem_invitados_sentados),0,0);
 	sem_init(&(pthread_data->semaforos_param.sem_manucho_puede_sentarse),0,0);
 	sem_init(&(pthread_data->semaforos_param.sem_servir_comida),0,0);
+	sem_init(&(pthread_data->semaforos_param.sem_platos_servidos),0,0);
 	// sem_init(&(pthread_data->semaforos_param.sem_pregunta),0,0);
 	// sem_init(&(pthread_data->semaforos_param.sem_respuesta),0,0);
 	// sem_init(&(pthread_data->semaforos_param.sem_levantarse),0,0);
@@ -143,8 +184,6 @@ int main () {
         ejecutarHiloManucho,             //funcion a ejecutar
         pthread_data
     ); 
-
-    printf("pid manucho: %d \n " , rc);
 
     rc = pthread_create(
         &th_invitados,                           //identificador unico
